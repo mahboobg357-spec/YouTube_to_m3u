@@ -1,0 +1,91 @@
+name: Generate Playlist and Live Channel
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install yt-dlp
+        run: |
+          python -m pip install --upgrade pip
+          pip install yt-dlp requests
+
+      - name: Extract Playlist and Generate Live Stream
+        run: |
+          python -c '
+          import os
+          import subprocess
+          import time
+          import json
+
+          # اپنی نئی 30-40 ویڈیوز والی پلے لسٹ کا لنک نیچے کوٹیشن مارکس میں ڈالیں
+          PLAYLIST_URL = "https://www.youtube.com/watch?v=dc5bEPnBZEk&list=PLinVjP-aRmlsfgXN264NXF2BaBslOO_B-"
+
+          print("Extracting playlist...")
+          cmd = ["yt-dlp", "--flat-playlist", "-J", PLAYLIST_URL]
+          res = subprocess.run(cmd, capture_output=True, text=True)
+          
+          data = json.loads(res.stdout)
+          entries = data.get("entries", [])
+          
+          m3u_lines = ["#EXTM3U\n"]
+          media_urls = []
+          
+          for entry in entries:
+              vid_id = entry.get("id")
+              title = entry.get("title", "Live Video")
+              if not vid_id:
+                  continue
+              
+              video_url = f"https://www.youtube.com/watch?v={vid_id}"
+              get_stream = subprocess.run(["yt-dlp", "-g", "-f", "best[ext=mp4]/best", video_url], capture_output=True, text=True)
+              stream_url = get_stream.stdout.strip()
+              
+              if stream_url and stream_url.startswith("http"):
+                  m3u_lines.append(f"#EXTINF:-1 tvg-name=\"{title}\",{title}\n{stream_url}\n")
+                  media_urls.append(stream_url)
+
+          with open("playlist.m3u", "w", encoding="utf-8") as f:
+              f.writelines(m3u_lines)
+
+          if media_urls:
+              total_tracks = len(media_urls)
+              current_slot = int(time.time() // 240)
+              current_index = current_slot % total_tracks
+              active_stream = media_urls[current_index]
+
+              live_hls = f"""#EXTM3U
+          #EXT-X-VERSION:3
+          #EXT-X-TARGETDURATION:300
+          #EXT-X-MEDIA-SEQUENCE:{current_slot}
+          #EXTINF:240.0,Live Music Channel
+          {active_stream}
+          """
+              with open("live_channel.m3u8", "w", encoding="utf-8") as f:
+                  f.write(live_hls)
+
+          print("Done successfully!")
+          '
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add playlist.m3u live_channel.m3u8
+          git commit -m "Auto-update playlist and live stream" || exit 0
+          git push
