@@ -5,11 +5,12 @@ on:
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout Code
@@ -23,10 +24,8 @@ jobs:
         run: |
           python stream.py
 
-      - name: Commit and Push
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add playlist.m3u live_channel.m3u8
-          git commit -m "Auto update stream" || exit 0
-          git push
+      - name: Auto Commit and Push Files
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-update playlist and live stream"
+          file_pattern: "playlist.m3u live_channel.m3u8"
